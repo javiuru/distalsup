@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coordinación de Diseño - Supervisor</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { 
+                extend: { 
+                    colors: { 
+                        slate: { 850: '#1e293b' },
+                        'brand-blue': '#00b8ff',
+                        'brand-orange': '#ff7800',
+                        'brand-amber': '#ffa000',
+                    } 
+                } 
+            }
+        }
+    </script>
+    <style>
+        body { font-family: sans-serif; }
+        .input-base { width: 100%; padding: 0.5rem; border-radius: 0.5rem; border-width: 1px; outline: none; }
+        .input-light { border-color: #e2e8f0; background-color: white; color: #0f172a; }
+        .dark .input-light { border-color: #475569; background-color: #334155; color: white; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .scroll-smooth { scroll-behavior: smooth; }
+        
+        #error-box { display: none; position: fixed; top: 0; left: 0; width: 100%; background: #fee2e2; color: #991b1b; padding: 20px; z-index: 99999; border-bottom: 2px solid #b91c1c; font-family: monospace; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    </style>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col overflow-hidden">
+    
+    <div id="error-box">
+        <strong>Error detectado:</strong> <span id="error-message"></span>
+        <br><span class="text-xs">Revisa la consola (F12) para más detalles.</span>
+    </div>
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            document.getElementById('error-box').style.display = 'block';
+            document.getElementById('error-message').innerText = msg + " (Línea: " + line + ")";
+            return false;
+        };
+    </script>
+
+    <div id="root" class="h-full flex flex-col"></div>
+
+    <script type="text/babel">
+        // --- CONFIGURACIÓN ---
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbypezRydOzD4smGFji5nY4lghXLcdsU45MCIoB94j-yf0oTJMw3YfY5FnrgRrJF3dKHRw/exec";
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- LISTAS Y CONFIGURACIÓN ---
+        const DEFAULT_LISTAS = {
+            TIPO: ['Reunión', 'Comunicación', 'Diseño', 'Soporte', 'Formación', 'Informe', 'Investigación', 'Petición'],
+            OBJETIVO: ['Diseño modular', 'Automatización', 'Material conjunto', 'Catálogo', 'Gestión de estilo', 'Soporte', 'Formación', 'Comunidad', 'Gestión'],
+            ESTADO: ['Iniciado', 'Continuado', 'Finalizado', 'Interrumpido', 'No solucionado'],
+            ESTADO_HORARIO: ['Laboral', 'Teletrabajo', 'Vacaciones', 'Asuntos propios', 'Festivo trabajado', 'Baja médica', 'Festivo'],
+            EXCEPCIONES: ['Castilla y León', 'I+D y Diseño'], // Excepciones por defecto
+            DURACION: [
+                { label: '15m', value: '00:15' }, { label: '30m', value: '00:30' }, { label: '45m', value: '00:45' },
+                { label: '1h', value: '01:00' }, { label: '1h y 30m', value: '01:30' }, { label: '2h', value: '02:00' },
+                { label: '2h y 30m', value: '02:30' }, { label: '3h', value: '03:00' }, { label: '3h y 30m', value: '03:30' }, { label: '4h', value: '04:00' }
+            ]
+        };
+
+        const processListas = (normas) => {
+            if (!normas || normas.length === 0) return DEFAULT_LISTAS;
+            const result = { TIPO: [], OBJETIVO: [], ESTADO: [], ESTADO_HORARIO: [], EXCEPCIONES: [], DURACION: [] };
+            
+            normas.forEach(n => {
+                if (!n.Categoria) return;
+                const cat = n.Categoria.trim().toUpperCase();
+                if (result[cat]) {
+                    if (cat === 'DURACION') result.DURACION.push({ label: n.Etiqueta || n.Valor, value: n.Valor });
+                    else if (n.Valor && !result[cat].includes(n.Valor)) result[cat].push(n.Valor);
+                }
+            });
+            Object.keys(DEFAULT_LISTAS).forEach(key => {
+                if (!result[key] || result[key].length === 0) result[key] = DEFAULT_LISTAS[key];
+            });
+            return result;
+        };
+        
+        const Logo = ({ className }) => (
+            <svg className={className} viewBox="0 0 800 800"><g className="fill-slate-900 dark:fill-slate-100"><g><path d="M213.7,526.9c21.8,0,29,14.2,29,14.2h.4s-.4-2.5-.4-5.6v-37c0-5.3,2.7-8.2,8-8.2h8.6c5.3,0,8,2.9,8,8.2v121.9c0,5.4-2.7,8.2-8,8.2h-7.2c-5.3,0-8-2.5-8-7.4v-3.9c0-1.9.4-3.5.4-3.5h-.4s-8.4,17.1-31.1,17.1-44.2-21.2-44.2-52C168.7,547.4,187.4,526.9,213.7,526.9Zm4.7,83.1c12.8,0,24.9-9.3,24.9-31.3s-8-30.6-24.7-30.6c-13.4,0-24.9,11.1-24.9,30.8,0,18.8,10.1,31.1,24.7,31.1Z"/><path d="M292,504.3v-5.8c0-5.3,2.7-8.2,8-8.2h8.6c5.3,0,8.2,2.9,8.2,8.2v5.8c0,5.3-2.9,8-8.2,8h-8.6c-5.3,0-8-2.7-8-8ZM292,537.4c0-5.3,2.7-8.2,8-8.2h8.6c5.3,0,8,2.9,8,8.2v82.9c0,5.5-2.7,8.2-8,8.2h-8.6c-5.3,0-8-2.7-8-8.2v-82.9Z"/><path d="m336.7,609.7,2.3-3.5c2.9-4.1,6.2-4.5,11.1-1.9,4.7,2.5,12.1,6.8,22.2,6.8,8.6,0,13.8-3.9,13.8-10.1,0-16.2-49.3-10.1-49.3-44.2,0-19.5,17.1-29.8,38-29.8,13.2,0,22.4,4.3,27.6,7.2,4.5,2.3,5.1,6.4,2.9,10.9l-1.9,3.5c-2.3,4.7-6,5.3-10.9,3.1-4.3-2-10.7-4.9-18.9-4.9-8.6,0-13.4,3.5-13.4,9.7,0,16.4,49.3,9.9,49.3,43.8,0,17.5-14.8,30.6-37.8,30.6-16,0-27.1-6-33.1-10.1-4.5-3.1-4.9-7.4-2.1-11.7Z"/><path d="M433.5,550.3h-5.3c-5.3,0-8-2.7-8-8.2v-3.3c0-5.3,2.7-8.2,8.2-8.2h5.6v-20.2c0-5.3,2.9-8.2,8.2-8.2h7.8c5.3,0,8.2,2.9,8.2,8.2v20.2h14.4c5.3,0,8.2,2.9,8.2,8.2v3.3c0,5.5-2.9,8.2-8,8.2h-14.6v38.5c0,14.8,9.2,17.7,16,18.5,6,0.6,8.2,2.5,8.2,8v6c0,5.8-3.3,8.2-10.1,8.2-17.7,0-38.7-9.5-38.7-36.4v-44.7Z"/><path d="M549.3,567.2h4.1v-2.3c0-13-8.4-17.5-18.5-17.5-8.4,0-16,3.1-20.6,5.6-4.9,2.1-8.6,1.4-10.9-3.3l-2.3-4.7c-2.3-4.5-1.6-8.4,3.1-10.9,6.4-3.3,17.7-8.2,32.5-8.2,25.7,0,41.1,14.4,41.1,39.5v53.9c0,5.5-2.7,8.2-8.2,8.2h-6.6c-5.3,0-8-2.7-8-8.2v-3.9c0-2.7.4-4.3.4-4.3h-.4s-9.3,18.7-31.1,18.7-32.9-11.7-32.9-29.8c0-25.1,35.8-30,58-30Zm-18.5,44.8c13.8,0,22.8-14,22.8-26.1v-3.7h-4.1c-12.5,0-33.7,2-33.7,16.7,0,7.1,5.1,13.1,15,13.1Z"/><path d="M600.9,498.5c0-5.3,2.7-8.2,8-8.2h8.6c5.3,0,8,2.9,8,8.2v97.1c0,9.7,4.1,11.5,7.8,11.9,3.5,0.4,6,2.5,6,7v6.6c0,5.1-2.3,8.4-8.2,8.4-13.2,0-30.2-3.5-30.2-31.9v-91.1Z"/></g><path d="M295,437.5c0-3.9,3.2-7.1,7.1-7.1h196c3.9,0,7.1,3.2,7.1,7.1s-3.2,7.1-7.1,7.1h-196c-3.9,0-7.1-3.2-7.1-7.1Z"/><g><path d="M218.4,325.9c0,9.6-5.8,13.9-18.3,13.9s-18.5-4.6-18.5-13.9V211.7c0-10.2,4.9-14.6,15.9-14.6,10.2,0,13.7,2.3,15.9,11,0.5,1.7,1.4,2.6,2.3,2.6,0.9,0,1.4-.4,3.4-2.3,7.2-7,19.4-11.3,31.9-11.3,7.5,0,11.3,4,11.3,11.9,0,18.3-3.4,25-12.5,25-22.1,0-32.5,11.9-31.6,35.9v55.9h-0.2Z M276.1,171.1c0-9.9,5.9-14.6,18.4-14.6s18.5,4.7,18.5,14.6v20.8c0,4.3,1.4,5.8,5.8,5.8h9.9c9.9,0,14.6,5.5,14.6,17.4,0,11.6-4.7,17.2-14.6,17.2h-9.9c-4,0-5.8,1.7-5.8,5.8v43.5c0,19.7,6.4,29.3,19.4,29.3,3.2,0,6.4-.4,15.1-1.2,0.9-.3,1.7-.3,2.9-.3,6.4,0,9.2,3.2,9.2,10.8,0,14.2-12.5,22.1-34.5,22.1-32.5,0-49-21.2-49-62.7V171.1Z M440,217.8c5.9-16.8,10.2-20.8,22.1-20.8,11,0,16.8,4.3,16.8,12.5,0,2.1-.4,2.9-1.4,6.4l-38.6,104.1c-5.9,15.9-10.4,20-22.1,20-11.6,0-16.3-4-22.1-20l-38.5-104.1c-1.2-2.9-1.4-4.3-1.4-6.4,0-8.1,5.9-12.5,16.8-12.5,11.9,0,15.9,4,21.7,20.8l19.4,56c0.9,2.3,2.1,3.4,4,3.4s3.2-1.2,3.8-3.4l19.5-56Z M520.9,299.6c-3.4,0-4.9,1.4-4.9,4.3,0,28.8,18.9,46.5,49.9,46.5,11,0,18.5-1.7,32.2-7.2,4.7-1.7,6.6-2.3,8.7-2.3,4.9,0,8.5,4.3,8.5,11,0,17.4-23.8,30.7-55.3,30.7-51.6,0-80.6-33.1-80.6-91.9,0-58.3,27.8-93.4,73.9-93.4,39.4,0,65.9,29.7,65.9,73.7,0,22.1-5.8,28.7-25.1,28.7h-73.1Z M578.9,270.3c3.4,0,4.7-1.4,4.7-5.2,0-26.7-11.6-41.1-32.5-41.1-20.6,0-34.5,17.4-34.5,42.3,0,2.6,1.7,4,4.7,4h57.6Z"/></g></g></svg>
+        );
+
+        const Icon = ({ path, size = 20, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>;
+        const Icons = {
+            LayoutDashboard: (p) => <Icon {...p} path={<><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></>} />,
+            Target: (p) => <Icon {...p} path={<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>} />,
+            Users: (p) => <Icon {...p} path={<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />,
+            Calendar: (p) => <Icon {...p} path={<><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></>} />,
+            Sun: (p) => <Icon {...p} path={<><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41-1.41"/><path d="m19.07 4.93-1.41 1.41"/></>} />,
+            Moon: (p) => <Icon {...p} path={<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>} />,
+            X: (p) => <Icon {...p} path={<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>} />,
+            Search: (p) => <Icon {...p} path={<><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></>} />,
+            ArrowLeft: (p) => <Icon {...p} path={<><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></>} />,
+            Phone: (p) => <Icon {...p} path={<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>} />,
+            Mail: (p) => <Icon {...p} path={<><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></>} />,
+            Briefcase: (p) => <Icon {...p} path={<><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>} />,
+            BookOpen: (p) => <Icon {...p} path={<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>} />,
+            Video: (p) => <Icon {...p} path={<><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></>} />,
+            Clock: (p) => <Icon {...p} path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />,
+            ChevronLeft: (p) => <Icon {...p} path={<polyline points="15 18 9 12 15 6" />} />,
+            ChevronRight: (p) => <Icon {...p} path={<polyline points="9 18 15 12 9 6" />} />,
+            FileText: (p) => <Icon {...p} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></>} />,
+            MessageCircle: (p) => <Icon {...p} path={<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>} />,
+            Edit: (p) => <Icon {...p} path={<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>} />,
+        };
+
+        const MEDIA_CONFIG = {
+            'Presencial': { icon: () => <Icons.Users size={16} />, colorClass: 'text-emerald-500', pillClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400' },
+            'Teléfono': { icon: () => <Icons.Phone size={16} />, colorClass: 'text-blue-500', pillClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400' },
+            'Correo': { icon: () => <Icons.Mail size={16} />, colorClass: 'text-amber-500', pillClass: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400' },
+            'Video': { icon: () => <Icons.Video size={16} />, colorClass: 'text-purple-500', pillClass: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-400' },
+            'Whatsapp': { icon: () => <Icons.MessageCircle size={16} />, colorClass: 'text-green-500', pillClass: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400' },
+            'Colaborativo': { icon: () => <Icons.Users size={16} />, colorClass: 'text-pink-500', pillClass: 'bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-400' }
+        };
+
+        const STATUS_CONFIG = {
+            'Iniciado': 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
+            'Continuado': 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300',
+            'Finalizado': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300',
+            'Interrumpido': 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300',
+            'No solucionado': 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
+        };
+
+        // --- UTILIDADES ---
+        const parseDurationToMinutes = (v) => { if (!v) return 0; if (String(v).includes(':') && !String(v).includes('T')) { const [h, m] = String(v).split(':').map(Number); return (h||0)*60+(m||0); } if (String(v).includes('T')) { const d = new Date(v); return d.getHours()*60+d.getMinutes(); } return 0; };
+        const formatMinutesToH = (m) => { const h = Math.floor(m/60); const min = Math.round(m%60); return h===0 ? `${min}m` : `${h}h ${min}m`; };
+        const formatMinutesToHoursOnly = (m) => { if(isNaN(m)) return '0'; return Math.round(m / 60); };
+        const formatDuration = (v) => formatMinutesToH(parseDurationToMinutes(v));
+        const formatDateEU = (d) => { if(!d)return''; const date=new Date(d); if(isNaN(date.getTime()))return d; return `${String(date.getDate()).padStart(2,'0')}-${String(date.getMonth()+1).padStart(2,'0')}-${date.getFullYear()}`; };
+        
+        const parseNames = (s, exceptions = []) => {
+            if (!s) return [];
+            let text = s;
+            const placeholders = {};
+            if (exceptions && exceptions.length > 0) {
+                exceptions.forEach((exc, i) => { if (text.includes(exc)) { const token = `__TOKEN${i}__`; placeholders[token] = exc; text = text.split(exc).join(token); } });
+            }
+            const parts = text.split(/,| y | Y /).map(x => x.trim()).filter(Boolean);
+            return parts.map(part => { let restored = part; Object.keys(placeholders).forEach(token => { restored = restored.split(token).join(placeholders[token]); }); return restored; });
+        };
+        const parseList = (s) => s ? s.split(',').map(x=>x.trim()).filter(Boolean) : [];
+
+        const getPeriodLabel = (type, date) => {
+            const y = date.getFullYear(); const m = date.getMonth(); const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+            if (type==='Todo') return "Todo el histórico"; if (type==='Año') return `Año ${y}`; if (type==='Semestre') return `${m<6?'1º':'2º'} Semestre ${y}`;
+            if (type==='Cuatrimestre') return `${Math.floor(m/4)+1}º Cuatrimestre ${y}`; if (type==='Trimestre') return `${Math.floor(m/3)+1}º Trimestre ${y}`;
+            if (type==='Bimensual') return `${months[Math.floor(m/2)*2]} - ${months[Math.floor(m/2)*2+1]} ${y}`;
+            if (type==='Mensual') return `${months[m]} ${y}`; if (type==='Semana') { const start=new Date(y,0,1); const diff=date-start+((start.getDay()+1)*86400000)/7; return `Semana ${Math.ceil(diff/604800000)} - ${y}`; }
+            return "Periodo";
+        };
+        const calculateRange = (type, refDate) => {
+            const y = refDate.getFullYear(); const m = refDate.getMonth();
+            let start = new Date(y, m, 1); let end = new Date(y, m + 1, 0);
+            if (type==='Todo') { start=new Date(2000,0,1); end=new Date(2100,0,1); }
+            else if (type==='Año') { start=new Date(y,0,1); end=new Date(y,11,31); }
+            else if (type==='Semestre') { const s=m<6?0:6; start=new Date(y,s,1); end=new Date(y,s+6,0); }
+            else if (type==='Cuatrimestre') { const c = Math.floor(m/4) * 4; start = new Date(y, c, 1); end = new Date(y, c + 4, 0); }
+            else if (type==='Trimestre') { const t = Math.floor(m/3) * 3; start = new Date(y, t, 1); end = new Date(y, t + 3, 0); }
+            else if (type==='Bimensual') { const b = Math.floor(m/2) * 2; start = new Date(y, b, 1); end = new Date(y, b + 2, 0); }
+            else if (type==='Mensual') { start = new Date(y, m, 1); end = new Date(y, m + 1, 0); }
+            else if (type==='Semana') { const day=refDate.getDay()||7; start=new Date(refDate); start.setHours(0,0,0,0); start.setDate(refDate.getDate()-day+1); end=new Date(start); end.setDate(start.getDate()+6); }
+            start.setHours(0,0,0,0); end.setHours(23,59,59,999); return { start, end };
+        };
+        const shiftDate = (type, date, direction) => {
+            const newDate = new Date(date);
+            if (type==='Año') newDate.setFullYear(date.getFullYear()+direction);
+            else if (type==='Semestre') newDate.setMonth(date.getMonth()+(direction*6));
+            else if (type==='Cuatrimestre') newDate.setMonth(date.getMonth() + (direction * 4));
+            else if (type==='Trimestre') newDate.setMonth(date.getMonth() + (direction * 3));
+            else if (type==='Bimensual') newDate.setMonth(date.getMonth() + (direction * 2));
+            else if (type==='Mensual') newDate.setMonth(date.getMonth()+direction);
+            else if (type==='Semana') newDate.setDate(date.getDate()+(direction*7));
+            return newDate;
+        };
+
+        function Button({ children, onClick, variant = 'primary', className = '', icon: IconComp }) {
+            const variants = { primary: "bg-brand-blue text-white hover:bg-sky-500", secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700", ghost: "bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800", outline: "border border-brand-blue text-brand-blue hover:bg-sky-50 dark:border-brand-blue dark:text-brand-blue dark:hover:bg-sky-900/20" };
+            return <button onClick={onClick} className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 shadow-sm active:scale-95 whitespace-nowrap justify-center md:justify-start ${variants[variant]} ${className}`}>{IconComp && <IconComp size={18} />}{children}</button>;
+        }
+        function Card({ children, className = '' }) { return <div className={`bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-4 ${className}`}>{children}</div>; }
+        function Badge({ children, colorClass = 'bg-slate-100 text-slate-800' }) { return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${colorClass}`}>{children}</span>; }
+        function NavButton({ icon: IconComp, label, active, onClick }) { return <button onClick={onClick} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full text-left ${active ? 'bg-sky-100 text-brand-blue dark:bg-sky-900/30 dark:text-brand-blue font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><IconComp size={20} /> {label}</button>; }
+        function BottomNavButton({ icon: IconComp, label, active, onClick }) { return <button onClick={onClick} className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors rounded-md ${active ? 'text-brand-blue' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><IconComp size={24} /><span className="text-xs font-medium">{label}</span></button>; }
+        
+        function SearchInput({ value, onChange, placeholder = "Buscar..." }) {
+            return (
+                <div className="relative w-full md:w-64">
+                    <div className="absolute left-3 top-2.5 text-slate-400 pointer-events-none"><Icons.Search size={18} /></div>
+                    <input className="w-full pl-10 pr-8 py-2 rounded-lg border dark:border-slate-700 dark:bg-slate-800 dark:text-white input-light" placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />
+                    {value && <button onClick={() => onChange("")} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"><Icons.X size={14} /></button>}
+                </div>
+            );
+        }
+
+        function FilterBar({ filter, onFilterChange }) {
+            const types = ['Todo', 'Año', 'Semestre', 'Cuatrimestre', 'Trimestre', 'Bimensual', 'Mensual', 'Semana'];
+            const [isOpen, setIsOpen] = useState(false);
+            const dropdownRef = useRef(null);
+            const handlePrev = () => onFilterChange({ ...filter, refDate: shiftDate(filter.type, filter.refDate, -1) });
+            const handleNext = () => onFilterChange({ ...filter, refDate: shiftDate(filter.type, filter.refDate, 1) });
+            const handleTypeSelect = (type) => { onFilterChange({ ...filter, type: type, refDate: new Date() }); setIsOpen(false); };
+            useEffect(() => { const handleClickOutside = (event) => { if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setIsOpen(false); }; document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [dropdownRef]);
+            return (<div className="flex flex-col md:flex-row gap-4 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-4 items-center justify-center"><div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg p-1" ref={dropdownRef}><button onClick={handlePrev} className={`p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors text-slate-600 dark:text-slate-300 ${filter.type === 'Todo' ? 'invisible' : ''}`} disabled={filter.type === 'Todo'}><Icons.ChevronLeft size={20}/></button><div className="relative"><button onClick={() => setIsOpen(!isOpen)} className="font-bold text-slate-800 dark:text-white w-48 text-center select-none px-4 py-2 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">{getPeriodLabel(filter.type, filter.refDate)}</button>{isOpen && (<div className="absolute top-full mt-2 w-48 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-lg z-10 animate-fade-in p-2">{types.map(t => (<button key={t} onClick={() => handleTypeSelect(t)} className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${filter.type === t ? 'bg-sky-100 text-brand-blue dark:bg-sky-900/50 dark:text-brand-blue' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}>{t}</button>))}</div>)}</div><button onClick={handleNext} className={`p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors text-slate-600 dark:text-slate-300 ${filter.type === 'Todo' ? 'invisible' : ''}`} disabled={filter.type === 'Todo'}><Icons.ChevronRight size={20}/></button></div></div>);
+        }
+
+        const BarChart = ({ data, formatValue }) => { const maxVal=Math.max(...data.map(d=>d.value),1); return (<div className="flex flex-col gap-3 w-full">{data.map((d,i)=>(<div key={i} className="flex flex-col gap-1"><div className="flex justify-between text-xs font-medium dark:text-slate-300"><span>{d.label}</span><span>{formatValue ? formatValue(d.value) : d.value}</span></div><div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden w-full"><div className="h-full bg-brand-blue rounded-full" style={{width:`${(d.value/maxVal)*100}%`}}></div></div></div>))}</div>); };
+        const PieChart = ({ data, colorMap }) => {
+            let cumPercent = 0;
+            return (<div className="flex flex-col items-center justify-center h-full"><div className="relative w-40 h-40 flex-shrink-0"><svg viewBox="-1 -1 2 2" className="transform -rotate-90 w-full h-full">{data.map((d, i) => { const start = 2 * Math.PI * cumPercent; cumPercent += d.percent / 100; const end = 2 * Math.PI * cumPercent; const x1 = Math.cos(start), y1 = Math.sin(start), x2 = Math.cos(end), y2 = Math.sin(end); const large = d.percent / 100 > .5 ? 1 : 0; const colorClass = colorMap[d.label] || 'text-slate-400'; return <path key={i} d={`M 0 0 L ${x1} ${y1} A 1 1 0 ${large} 1 ${x2} ${y2} Z`} fill="currentColor" className={colorClass} />; })}</svg></div><div className="flex flex-wrap gap-x-4 gap-y-2 justify-center mt-4 text-xs">{data.map((d, i) => { const colorClass = colorMap[d.label] || 'text-slate-400'; const bgColorClass = colorClass.replace('text', 'bg'); return (<div key={i} className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${bgColorClass}`}></div><span className="dark:text-slate-300 font-medium">{d.label} <b className="text-sm">{d.percent.toFixed(1)}%</b></span></div>); })}</div></div>);
+        };
+        
+        function LineChart({ data, series, visibleSeries, onToggleSeries, yAxisLabel = 'h', height = 300 }) {
+            if (!data || data.length < 2) return <div className="flex items-center justify-center h-full text-slate-400 p-8">Datos insuficientes para mostrar el gráfico en este periodo.</div>;
+            const padding = { top: 20, right: 20, bottom: 40, left: 50 }; const chartWidth = 800; const chartHeight = height;
+            const allValues = series.filter(s => visibleSeries.has(s.key)).flatMap(s => data.map(d => d[s.key])).filter(v => v !== null && v !== undefined);
+            const yMax = allValues.length > 0 ? Math.max(...allValues, 0) : 10; const yMin = 0; const yDomain = yMax - yMin;
+            const xScale = (index) => padding.left + (index / (data.length - 1)) * (chartWidth - padding.left - padding.right);
+            const yScale = (value) => { if (yDomain === 0) return chartHeight - padding.bottom; return chartHeight - padding.bottom - ((value - yMin) / yDomain) * (chartHeight - padding.top - padding.bottom); };
+            const createPath = (dataset) => { let path = ''; let inSegment = false; dataset.forEach((point, i) => { if (point !== null && point !== undefined) { if (!inSegment) { path += `M ${xScale(i)} ${yScale(point)} `; inSegment = true; } else { path += `L ${xScale(i)} ${yScale(point)} `; } } else { inSegment = false; } }); return path; };
+            const yAxisTicks = []; const tickCount = 5; const step = yDomain > 0 ? yDomain / tickCount : 1;
+            for (let i = 0; i <= tickCount; i++) { const tickValue = yMin + i * step; yAxisTicks.push(Number.isInteger(tickValue) ? tickValue : parseFloat(tickValue.toFixed(1))); }
+            return (<div className="flex flex-col"><svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%" height={height} className="w-full">{yAxisTicks.map(tick => (<g key={tick} className="text-slate-400"><line x1={padding.left} x2={chartWidth - padding.right} y1={yScale(tick)} y2={yScale(tick)} className="stroke-slate-200 dark:stroke-slate-700" strokeDasharray="2,2"/><text x={padding.left - 10} y={yScale(tick)} textAnchor="end" alignmentBaseline="middle" className="text-xs fill-current">{tick}{yAxisLabel}</text></g>))}{data.map((d, i) => (<text key={i} x={xScale(i)} y={chartHeight - padding.bottom + 20} textAnchor="middle" className="text-xs fill-slate-500 dark:fill-slate-400">{d.label}</text>))}{series.map(s => visibleSeries.has(s.key) && (<g key={s.key}><path d={createPath(data.map(d => d[s.key]))} fill="none" className={s.color} strokeWidth="2" />{data.map((d, i) => { const value = d[s.key]; return (value !== null && value !== undefined) && <circle key={i} cx={xScale(i)} cy={yScale(value)} r="4" className={s.fill} />; })}</g>))}</svg><div className="flex justify-center flex-wrap gap-x-4 gap-y-2 mt-4 text-xs">{series.map(s => { const legendItem = (<div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-sm ${s.color.replace('stroke', 'bg')}`}></div><span className="text-slate-600 dark:text-slate-400">{s.label}</span></div>); return onToggleSeries ? (<button key={s.key} onClick={() => onToggleSeries(s.key)} className={`p-1 rounded-md transition-opacity ${!visibleSeries.has(s.key) ? 'opacity-40' : 'opacity-100'}`}>{legendItem}</button>) : (<div key={s.key}>{legendItem}</div>); })}</div></div>);
+        }
+
+        const TypeIconMap = { 'Reunión': Icons.Users, 'Comunicación': Icons.MessageCircle, 'Diseño': Icons.Edit, 'Soporte': Icons.Phone, 'Formación': Icons.BookOpen, 'Informe': Icons.FileText, 'Investigación': Icons.Search, 'Petición': Icons.Mail, 'default': Icons.Target };
+        function ActionsByTypeChart({ data }) { return (<div className="grid grid-cols-2 md:grid-cols-4 gap-4">{data.map(item => { const IconComp = TypeIconMap[item.label] || TypeIconMap.default; return (<div key={item.label} className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg flex items-center gap-4"><IconComp size={24} className="text-brand-blue flex-shrink-0" /><div className="min-w-0"><div className="text-2xl font-bold dark:text-white truncate">{item.value}</div><div className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.label}</div></div></div>); })}</div>); }
+
+        function Dashboard({ data, filter, listas }) {
+            const [deptMetric, setDeptMetric] = useState('time');
+            const { start, end } = useMemo(() => calculateRange(filter.type, filter.refDate), [filter]);
+            const filteredActions = useMemo(() => data.acciones.filter(a => { const d = new Date(a.Fecha); return d >= start && d <= end; }), [data.acciones, start, end]);
+            const filteredHorario = useMemo(() => data.horario.filter(h => { const d = new Date(h.Fecha); return d >= start && d <= end; }), [data.horario, start, end]);
+            
+            const monthlyTrendData = useMemo(() => {
+                let rangeStart, rangeEnd, labelOptions = { month: 'short' };
+                if (filter.type === 'Todo') {
+                    const allDates = [...data.horario, ...data.acciones].map(item => item.Fecha ? new Date(item.Fecha) : null).filter(Boolean);
+                    if (allDates.length === 0) return [];
+                    const latestDate = new Date(Math.max.apply(null, allDates));
+                    rangeEnd = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 0);
+                    rangeStart = new Date(rangeEnd);
+                    rangeStart.setMonth(rangeStart.getMonth() - 15);
+                    rangeStart.setDate(1);
+                    labelOptions = { month: 'short', year: '2-digit' };
+                } else {
+                    const { start: s, end: e } = calculateRange(filter.type, filter.refDate);
+                    rangeStart = s;
+                    rangeEnd = e;
+                    if ((e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) > 24) return [];
+                }
+
+                const months = [];
+                let current = new Date(rangeStart);
+                while (current <= rangeEnd) {
+                    months.push({ date: new Date(current), label: current.toLocaleDateString('es-ES', labelOptions), worked: null, coord: null, extra: null, _hasData: false });
+                    current.setMonth(current.getMonth() + 1);
+                }
+
+                const monthMap = months.reduce((map, month, index) => {
+                    const key = `${month.date.getFullYear()}-${month.date.getMonth()}`;
+                    map[key] = index;
+                    return map;
+                }, {});
+
+                const processItems = (items, valueExtractor, targetProp) => {
+                    items.forEach(item => {
+                        if (!item.Fecha) return;
+                        const date = new Date(item.Fecha);
+                        const key = `${date.getFullYear()}-${date.getMonth()}`;
+                        const index = monthMap[key];
+                        if (index !== undefined) {
+                            const monthData = months[index];
+                            if (monthData[targetProp] === null) monthData[targetProp] = 0;
+                            monthData[targetProp] += valueExtractor(item);
+                            monthData._hasData = true;
+                        }
+                    });
+                };
+                
+                processItems(data.horario, h => parseFloat(h.Minutos) || 0, 'worked');
+                processItems(data.horario, h => parseFloat(h.Saldo) || 0, 'extra');
+                processItems(data.acciones, a => parseDurationToMinutes(a.Tiempo), 'coord');
+
+                let firstDataIndex = -1, lastDataIndex = -1;
+                for (let i = 0; i < months.length; i++) {
+                    if (months[i]._hasData) {
+                        if (firstDataIndex === -1) firstDataIndex = i;
+                        lastDataIndex = i;
+                    }
+                }
+                if (firstDataIndex === -1) return [];
+
+                const finalMonths = months.slice(firstDataIndex, lastDataIndex + 1);
+                return finalMonths.map(m => ({ ...m, worked: m.worked !== null ? Math.round(m.worked / 60) : 0, coord: m.coord !== null ? Math.round(m.coord / 60) : 0, extra: m.extra !== null ? Math.round(m.extra / 60) : 0 }));
+            }, [data.acciones, data.horario, filter]);
+
+            const stats = useMemo(() => {
+                const daysWorked = filteredHorario.filter(h => !h['Estado/Ausencia'] || h['Estado/Ausencia'] === 'Laboral').length;
+                const totalMinutesWorked = filteredHorario.reduce((acc, h) => acc + (parseFloat(h.Minutos) || 0), 0);
+                const actionMinutes = filteredActions.reduce((acc, a) => acc + parseDurationToMinutes(a.Tiempo), 0);
+                const coordPercent = totalMinutesWorked > 0 ? (actionMinutes / totalMinutesWorked) * 100 : 0;
+                const totalSaldoMinutes = filteredHorario.reduce((acc, h) => acc + (parseFloat(h.Saldo) || 0), 0);
+                const actionsCount = filteredActions.length;
+                const groupBy = (key, split, metric = 'time') => { const groups = {}; const exceptions = listas ? listas.EXCEPCIONES : []; filteredActions.forEach(a => { const vals = split ? parseNames(a[key], exceptions) : [a[key]||'Otros']; const dur = parseDurationToMinutes(a.Tiempo); vals.forEach(v => { if(v) { if (metric === 'time') groups[v] = (groups[v] || 0) + dur; else groups[v] = (groups[v] || 0) + 1; } }); }); const total = Object.values(groups).reduce((acc,v)=>acc+v,0); if(total === 0) return []; return Object.entries(groups).map(([l,v])=>({label:l,value:v,percent:(v/total)*100})).sort((a,b)=>b.value-a.value); };
+                let byObjRaw = groupBy('Objetivo', false, 'time');
+                if (byObjRaw.length > 4) { const top4 = byObjRaw.slice(0, 4); const others = byObjRaw.slice(4); const othersSumValue = others.reduce((acc, d) => acc + d.value, 0); const othersSumPercent = others.reduce((acc, d) => acc + d.percent, 0); byObjRaw = [...top4, { label: 'Otros', value: othersSumValue, percent: othersSumPercent }]; }
+                return { daysWorked, hoursWorked: totalMinutesWorked, coordHours: actionMinutes, coordPercent: Math.min(coordPercent, 100), totalSaldoMinutes, actionsCount, byDept: { time: groupBy('Departamento', true, 'time').slice(0, 5), count: groupBy('Departamento', true, 'count').slice(0, 5) }, byObj: byObjRaw, byType: groupBy('Tipo', false, 'count') };
+            }, [filteredActions, filteredHorario, listas]);
+
+            const OBJECTIVE_COLOR_PALETTE = ['text-brand-blue', 'text-brand-orange', 'text-emerald-500', 'text-brand-amber', 'text-purple-500', 'text-pink-500', 'text-sky-500', 'text-red-500', 'text-indigo-500'];
+            const objectiveColorMap = useMemo(() => { const map = {}; (listas.OBJETIVO || []).forEach((obj, i) => { map[obj] = OBJECTIVE_COLOR_PALETTE[i % OBJECTIVE_COLOR_PALETTE.length]; }); return map; }, [listas.OBJETIVO]);
+            
+            const monthlyObjectiveTrendData = useMemo(() => {
+                if (!monthlyTrendData || monthlyTrendData.length === 0) return [];
+                const trendData = monthlyTrendData.map(m => {
+                    const newMonth = { date: m.date, label: m.label };
+                    (listas.OBJETIVO || []).forEach(obj => newMonth[obj] = null);
+                    return newMonth;
+                });
+                const monthMap = trendData.reduce((map, month, index) => {
+                    map[`${month.date.getFullYear()}-${month.date.getMonth()}`] = index;
+                    return map;
+                }, {});
+                filteredActions.forEach(a => {
+                    if (!a.Fecha || !a.Objetivo) return;
+                    const date = new Date(a.Fecha);
+                    const key = `${date.getFullYear()}-${date.getMonth()}`;
+                    const index = monthMap[key];
+                    if (index !== undefined) {
+                        const monthData = trendData[index];
+                        const duration = parseDurationToMinutes(a.Tiempo);
+                        if (monthData[a.Objetivo] === null) monthData[a.Objetivo] = 0;
+                        monthData[a.Objetivo] += duration;
+                    }
+                });
+                return trendData.map(m => {
+                    const newM = { ...m };
+                    (listas.OBJETIVO || []).forEach(obj => { newM[obj] = newM[obj] !== null ? Math.round(newM[obj] / 60) : 0; });
+                    return newM;
+                });
+            }, [filteredActions, monthlyTrendData, listas.OBJETIVO]);
+
+            const [visibleObjectives, setVisibleObjectives] = useState(new Set());
+            useEffect(() => { setVisibleObjectives(new Set(stats.byObj.slice(0, 3).map(o => o.label))); }, [stats.byObj]);
+            const handleToggleObjective = (objective) => { setVisibleObjectives(prev => { const newSet = new Set(prev); if (newSet.has(objective)) newSet.delete(objective); else newSet.add(objective); return newSet; }); };
+            const timeSeries = useMemo(() => [{ key: 'worked', label: 'Horas Trabajadas', color: 'stroke-slate-400', fill: 'fill-slate-400' }, { key: 'coord', label: 'Horas Coordinación', color: 'stroke-brand-blue', fill: 'fill-brand-blue' }, { key: 'extra', label: 'Horas Extra', color: 'stroke-brand-orange', fill: 'fill-brand-orange' }], []);
+            const objectiveSeries = useMemo(() => (listas.OBJETIVO || []).map(obj => ({ key: obj, label: obj, color: (objectiveColorMap[obj] || 'text-slate-400').replace('text', 'stroke'), fill: (objectiveColorMap[obj] || 'text-slate-400').replace('text', 'fill'), })), [listas.OBJETIVO, objectiveColorMap]);
+            
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in pb-20 md:pb-0">
+                    <Card><h3 className="font-bold text-slate-800 dark:text-white mb-6">Tiempo de Trabajo</h3><div className="flex-grow flex items-center justify-around"><div className="text-center"><div className="text-5xl font-bold dark:text-white">{stats.daysWorked}</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Días</div></div><div className="text-center"><div className="text-5xl font-bold dark:text-white">{formatMinutesToHoursOnly(stats.hoursWorked)}</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Horas</div></div><div className="text-center"><div className="text-5xl font-bold text-brand-orange">{formatMinutesToHoursOnly(stats.totalSaldoMinutes)}</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Extras</div></div></div></Card>
+                    <Card><h3 className="font-bold text-slate-800 dark:text-white mb-6">Coordinación</h3><div className="flex-grow flex items-center justify-around"><div className="text-center"><div className="text-5xl font-bold text-brand-blue">{formatMinutesToHoursOnly(stats.coordHours)}</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Horas</div></div><div className="text-center"><div className="text-5xl font-bold dark:text-white">{Math.round(stats.coordPercent)}%</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Tiempo</div></div><div className="text-center"><div className="text-5xl font-bold dark:text-white">{stats.actionsCount}</div><div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Acciones</div></div></div></Card>
+                    <Card className="lg:col-span-2"><h3 className="font-bold text-slate-800 dark:text-white mb-4">Evolución Tiempos</h3><LineChart data={monthlyTrendData} series={timeSeries} visibleSeries={new Set(['worked', 'coord', 'extra'])} /></Card>
+                    <Card><div className="flex justify-between items-center mb-6"><h3 className="font-bold text-slate-800 dark:text-white">Top 5 Departamentos</h3><div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg"><button onClick={() => setDeptMetric('time')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${deptMetric === 'time' ? 'bg-white dark:bg-slate-700 text-brand-blue shadow-sm' : 'text-slate-500'}`}>Tiempo</button><button onClick={() => setDeptMetric('count')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${deptMetric === 'count' ? 'bg-white dark:bg-slate-700 text-brand-blue shadow-sm' : 'text-slate-500'}`}>Acciones</button></div></div>{stats.byDept.time.length > 0 ? <BarChart data={deptMetric === 'time' ? stats.byDept.time : stats.byDept.count} formatValue={deptMetric === 'time' ? (v) => formatMinutesToH(v) : (v) => `${v} acc.`} /> : <p className="text-slate-400 text-sm">No hay datos suficientes</p>}</Card>
+                    <Card className="flex flex-col"><h3 className="font-bold text-slate-800 dark:text-white mb-4">Objetivos</h3>{stats.byObj.length > 0 ? <PieChart data={stats.byObj.slice(0,5)} colorMap={objectiveColorMap} /> : <p className="text-slate-400 text-sm mt-4">No hay datos suficientes</p>}</Card>
+                    <Card className="lg:col-span-2"><h3 className="font-bold text-slate-800 dark:text-white mb-4">Evolución Objetivos</h3><LineChart data={monthlyObjectiveTrendData} series={objectiveSeries} visibleSeries={visibleObjectives} onToggleSeries={handleToggleObjective} /></Card>
+                    <Card className="lg:col-span-2"><h3 className="font-bold text-slate-800 dark:text-white mb-4">Acciones por Tipo</h3>{stats.byType.length > 0 ? <ActionsByTypeChart data={stats.byType} /> : <p className="text-slate-400 text-sm">No hay datos suficientes</p>}</Card>
+                </div>
+            );
+        }
+
+        const getMediaIconsNodes = (mediaString) => {
+            if (!mediaString) return null;
+            const medias = mediaString.split(',').map(s => s.trim());
+            return medias.map((m, i) => { const config = Object.keys(MEDIA_CONFIG).find(k => m.toLowerCase().includes(k.toLowerCase())); if (config) { const { icon: IconFunc, colorClass } = MEDIA_CONFIG[config]; return <div key={i} className={colorClass}><IconFunc /></div>; } return null; }).filter(Boolean);
+        };
+        const getMediaPills = (mediaString) => {
+            if (!mediaString) return null;
+            const medias = mediaString.split(',').map(s => s.trim());
+            return medias.map((m, i) => { const config = Object.keys(MEDIA_CONFIG).find(k => m.toLowerCase().includes(k.toLowerCase())); if (config) { const { icon: IconFunc, pillClass } = MEDIA_CONFIG[config]; return <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border border-transparent ${pillClass}`}><IconFunc />{config}</span>; } return <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">{m}</span>; });
+        };
+
+        function AccionesView({ data, filter, onFilterByName, initialSearch, onSearchConsumed, listas }) {
+            const { start, end } = useMemo(() => calculateRange(filter.type, filter.refDate), [filter]);
+            const [selectedId, setSelectedId] = useState(null);
+            const [searchTerm, setSearchTerm] = useState("");
+
+            useEffect(() => { if (initialSearch) { setSearchTerm(initialSearch); setSelectedId(null); if(onSearchConsumed) onSearchConsumed(); } }, [initialSearch]);
+            
+            const filteredActions = data.filter(a => { const d = new Date(a.Fecha); const inRange = filter.type === 'Todo' ? true : (d >= start && d <= end); const st = searchTerm.toLowerCase(); const matchesSearch = !searchTerm.trim() || (a.Nombre && String(a.Nombre).toLowerCase().includes(st)) || (a.Departamento && String(a.Departamento).toLowerCase().includes(st)) || (a.Descripción && String(a.Descripción).toLowerCase().includes(st)); return inRange && matchesSearch; }).sort((a,b) => new Date(b.Fecha) - new Date(a.Fecha));
+            const selectedAction = data.find(a => a.id === selectedId);
+            
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault(); 
+                        const currentIndex = filteredActions.findIndex(a => a.id === selectedId);
+                        let nextIndex = currentIndex;
+                        if (e.key === 'ArrowDown') nextIndex = currentIndex < filteredActions.length - 1 ? currentIndex + 1 : currentIndex;
+                        else nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+                        if (nextIndex !== -1 && filteredActions[nextIndex]) {
+                            setSelectedId(filteredActions[nextIndex].id);
+                            document.getElementById(`action-card-${filteredActions[nextIndex].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        } else if (currentIndex === -1 && filteredActions.length > 0) setSelectedId(filteredActions[0].id);
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [selectedId, filteredActions]);
+
+            return (
+                <div className="flex h-[calc(100vh-10rem)] gap-4">
+                    <div className={`flex flex-col gap-4 w-full md:w-1/3 transition-all ${selectedId ? 'hidden md:flex' : 'flex'}`}>
+                        <div className="flex gap-2"><div className="relative flex-1"><SearchInput value={searchTerm} onChange={setSearchTerm} /></div></div>
+                        <div className="overflow-y-auto flex flex-col gap-2 pb-20 pr-1 scroll-smooth">
+                            {filteredActions.length === 0 && <div className="text-center text-slate-400 py-10">No hay acciones</div>}
+                            {filteredActions.map(action => (
+                                <div key={action.id} id={`action-card-${action.id}`} onClick={() => setSelectedId(action.id)} className={`p-4 rounded-xl border cursor-pointer transition-all relative group ${selectedId === action.id ? 'border-brand-blue bg-sky-50 dark:bg-sky-900/20 shadow-md ring-1 ring-brand-blue' : 'bg-white dark:bg-slate-800 dark:border-slate-700 hover:shadow-md'}`}>
+                                    <div className="flex justify-between items-start mb-2"><div className="flex-1 min-w-0 pr-2"><h3 className="font-bold text-lg text-slate-800 dark:text-slate-100 truncate">{action.Nombre || 'Sin nombre'}</h3><p className="text-sm text-slate-500 dark:text-slate-400 truncate mt-0.5">{action.Departamento}</p></div><div className="flex items-center gap-4 flex-shrink-0"><div className="flex space-x-3">{getMediaIconsNodes(action.Medio)}</div><span className="text-lg font-bold text-slate-700 dark:text-slate-300">{formatDateEU(action.Fecha)}</span></div></div>
+                                    <p className="text-base font-medium text-slate-700 dark:text-slate-300 line-clamp-2 mb-8">{action.Descripción}</p>
+                                    <div className="absolute bottom-3 right-3"><Badge colorClass={STATUS_CONFIG[action.Estado] || 'bg-slate-100'}>{action.Estado}</Badge></div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    {selectedId ? (<div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-lg border dark:border-slate-800 flex flex-col overflow-hidden fixed inset-0 z-40 md:static md:z-0"><div className="p-4 md:hidden border-b dark:border-slate-700 flex items-center gap-2 bg-white dark:bg-slate-900"><button onClick={() => setSelectedId(null)} className="p-2 dark:text-white"><Icons.ArrowLeft /></button><span className="font-bold dark:text-white">Volver</span></div><div className="p-6 md:p-8 overflow-y-auto h-full"><ActionDetail action={selectedAction} allActions={data} onFilterByName={onFilterByName} onFilterDesc={(desc) => { setSearchTerm(desc); setSelectedId(null); }} listas={listas} /></div></div>) : (<div className="hidden md:flex flex-1 items-center justify-center flex-col gap-4 text-slate-300 dark:text-slate-700"><Icons.Target size={64} /><p className="text-lg">Selecciona una acción para ver los detalles</p></div>)}
+                </div>
+            );
+        }
+
+        function ActionDetail({ action, onFilterByName, onFilterDesc, allActions, listas }) {
+            if (!action) return <div className="p-8 text-center text-slate-400">Acción no encontrada</div>;
+            const names = parseNames(action.Nombre, listas ? listas.EXCEPCIONES : []); 
+            const descParts = parseList(action.Descripción); const getDescCount = (text) => { if(!allActions) return 0; return allActions.filter(a => a.Descripción && a.Descripción.includes(text)).length; };
+            return (
+                <div className="flex flex-col gap-6 animate-fade-in pb-20">
+                    <div>
+                        <div className="flex flex-wrap gap-2 mb-1">{names.map((name, i) => (<button key={i} onClick={() => onFilterByName(name)} className="text-2xl font-bold dark:text-white hover:text-brand-blue dark:hover:text-brand-blue hover:underline text-left">{name}{i < names.length - 1 ? ',' : ''}</button>))}</div>
+                        <button onClick={() => action.Departamento && onFilterByName(action.Departamento)} className="flex gap-2 text-slate-500 dark:text-slate-400 items-center mt-1 hover:text-brand-blue dark:hover:text-brand-blue hover:underline text-left disabled:no-underline disabled:cursor-default disabled:text-slate-500" disabled={!action.Departamento}>
+                            <Icons.Briefcase size={16}/> {action.Departamento || 'Sin departamento'}
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-4 border-b border-slate-100 dark:border-slate-700 pb-4 justify-between"><div className="flex gap-2">{getMediaPills(action.Medio)}</div><div className="flex items-center gap-3"><Badge colorClass={STATUS_CONFIG[action.Estado] || 'bg-slate-100'}>{action.Estado}</Badge><span className="text-sm text-slate-500 dark:text-slate-400 font-mono">{formatDateEU(action.Fecha)}</span></div></div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><Card><span className="text-xs font-bold text-slate-400 block mb-1">DURACIÓN</span><div className="font-medium dark:text-slate-200 text-brand-blue flex items-center gap-1"><Icons.Clock size={16}/>{formatDuration(action.Tiempo)}</div></Card><Card><span className="text-xs font-bold text-slate-400 block mb-1">TIPO</span><div className="font-medium dark:text-slate-200">{action.Tipo}</div></Card></div>
+                    <div><h3 className="font-bold mb-2 dark:text-slate-200">Objetivo</h3><p className="dark:text-slate-300 text-slate-700">{action.Objetivo}</p></div>
+                    <div><h3 className="font-bold mb-2 dark:text-slate-200">Descripción</h3><div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-lg border border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">{descParts.length > 0 ? descParts.map((part, i) => (<button key={i} onClick={() => onFilterDesc(part)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-full text-sm hover:border-brand-blue hover:text-brand-blue dark:hover:text-brand-blue transition-colors">{part} <span className="text-xs text-slate-400 ml-1">({getDescCount(part)})</span></button>)) : <span className="text-slate-400">Sin descripción</span>}</div></div>
+                    {action.Detalles && (<div><h3 className="font-bold mb-2 dark:text-slate-200">Detalles Adicionales</h3><p className="dark:text-slate-300 text-slate-700 whitespace-pre-wrap">{action.Detalles}</p></div>)}
+                </div>
+            );
+        }
+
+        function HorarioView({ data, listas }) {
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [hideWeekends, setHideWeekends] = useState(true);
+            const FESTIVOS = ['01-01', '06-01', '23-04', '01-05', '13-05', '15-08', '08-09', '12-10', '01-11', '06-12', '08-12', '25-12'];
+            const formatHHMM = (mins) => { if (mins === undefined || mins === null || isNaN(mins)) return ''; const sign = mins < 0 ? '-' : '+'; const m = Math.abs(mins); const hours = Math.floor(m / 60); const minutes = Math.round(m % 60); return `${sign}${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`; };
+            const extractTime = (val) => { if (!val) return ''; if (typeof val === 'string' && val.includes('T')) { const d = new Date(val); if (!isNaN(d.getTime())) return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}); } if (typeof val === 'string') return val.substring(0, 5); return val; };
+            const toLocalYMD = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            const weekDays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+            
+            const calendarDays = useMemo(() => {
+                const year = currentDate.getFullYear(); const month = currentDate.getMonth(); const firstDayOfMonth = new Date(year, month, 1); const lastDayOfMonth = new Date(year, month + 1, 0); const startDay = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1;
+                const days = [];
+                for (let i = 0; i < startDay; i++) { days.push({ date: new Date(year, month, 1 - (startDay - i)), isCurrentMonth: false }); }
+                for (let i = 1; i <= lastDayOfMonth.getDate(); i++) { days.push({ date: new Date(year, month, i), isCurrentMonth: true }); }
+                while (days.length % 7 !== 0) { days.push({ date: new Date(year, month + 1, days.length - (startDay + lastDayOfMonth.getDate()) + 1), isCurrentMonth: false }); }
+                return days;
+            }, [currentDate]);
+
+            const visibleCalendarDays = useMemo(() => { if (hideWeekends) return calendarDays.filter(dayObj => { const day = dayObj.date.getDay(); return day !== 0 && day !== 6; }); return calendarDays; }, [calendarDays, hideWeekends]);
+            
+            const monthDays = useMemo(() => {
+                const year = currentDate.getFullYear(); const month = currentDate.getMonth(); const lastDay = new Date(year, month + 1, 0).getDate(); const days = [];
+                for (let i = 1; i <= lastDay; i++) {
+                    const date = new Date(year, month, i); const dayOfWeek = date.getDay(); const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    if (isWeekend) { const dateStr = toLocalYMD(date); const record = data.find(r => r.Fecha && r.Fecha.substring(0, 10) === dateStr); if (record) days.push({ date, isCurrentMonth: true }); } else { days.push({ date, isCurrentMonth: true }); }
+                }
+                return days;
+            }, [currentDate, data]);
+
+            const visibleDays = hideWeekends ? weekDays.slice(0, 5) : weekDays;
+            const gridCols = hideWeekends ? 'grid-cols-5' : 'grid-cols-7';
+            const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+            const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+
+            return (
+                <div className="flex flex-col gap-4 pb-20 md:pb-0 h-full relative">
+                    <div className="flex flex-col md:flex-row justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm gap-4">
+                        <div className="flex items-center gap-4"><button onClick={prevMonth} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full"><Icons.ChevronLeft /></button><h2 className="text-xl font-bold capitalize w-48 text-center text-slate-800 dark:text-white">{currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</h2><button onClick={nextMonth} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full"><Icons.ChevronRight /></button></div>
+                        <div className="flex items-center gap-2"><label className="text-sm font-medium text-slate-600 dark:text-slate-400">Ocultar Finde</label><input type="checkbox" checked={hideWeekends} onChange={() => setHideWeekends(!hideWeekends)} className="w-5 h-5 text-brand-blue rounded focus:ring-brand-blue" /></div>
+                    </div>
+                    <div className="flex-1 overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4">
+                        <div className="hidden lg:block">
+                            <div className={`grid ${gridCols} gap-4 mb-2`}>{visibleDays.map(d => <div key={d} className="text-center font-bold text-slate-400 text-xs uppercase mb-2">{d}</div>)}</div>
+                            <div className={`grid ${gridCols} gap-2`}>{visibleCalendarDays.map((dayObj, i) => { const dateStr = toLocalYMD(dayObj.date); const dayStrEU = `${String(dayObj.date.getDate()).padStart(2,'0')}-${String(dayObj.date.getMonth()+1).padStart(2,'0')}`; const isFestivoCalendario = FESTIVOS.includes(dayStrEU); const record = data.find(r => r.Fecha && r.Fecha.substring(0, 10) === dateStr); const isToday = new Date().toDateString() === dayObj.date.toDateString(); const opacity = dayObj.isCurrentMonth ? 'opacity-100' : 'opacity-40'; const bg = isFestivoCalendario ? 'bg-red-50 dark:bg-red-900/20' : (isToday ? 'bg-sky-50 dark:bg-sky-900/20 ring-1 ring-brand-blue' : 'bg-slate-50 dark:bg-slate-700/30'); const status = record?.['Estado/Ausencia']; const showData = record && (status === 'Laboral' || status === 'Festivo trabajado' || !status); return (<div key={i} className={`relative rounded-lg border border-slate-100 dark:border-slate-700 flex min-h-[6rem] overflow-hidden ${opacity} ${bg}`}><div className={`w-20 flex-none flex items-center justify-center border-r ${isFestivoCalendario ? 'border-red-200 dark:border-red-800/50' : 'border-slate-200 dark:border-slate-700'} bg-white/50 dark:bg-black/10`}><span className={`text-4xl font-bold ${isFestivoCalendario ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>{dayObj.date.getDate()}</span></div><div className="flex-1 relative">{showData ? (<div className="flex flex-col justify-center h-full p-2 px-3 gap-1"><div className="flex justify-between items-baseline"><span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Entrada</span> <span className="text-lg font-mono font-bold text-slate-800 dark:text-white">{extractTime(record?.Entrada)}</span></div><div className="flex justify-between items-baseline"><span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Salida</span> <span className="text-lg font-mono font-bold text-slate-800 dark:text-white">{extractTime(record?.Salida)}</span></div>{record?.Saldo && (<div className={`text-right font-mono text-base font-bold ${record.Saldo >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatHHMM(record.Saldo)}</div>)}{status === 'Festivo trabajado' && <div className="mt-1 flex justify-end"><Badge colorClass="bg-orange-100 text-orange-800">Festivo trabajado</Badge></div>}</div>) : (<div className="flex items-center justify-center h-full">{status ? (<Badge colorClass="bg-slate-200 text-slate-700 text-xs py-1 px-2">{status}</Badge>) : (isFestivoCalendario && <span className="text-xs font-bold text-red-400 uppercase border border-red-200 px-2 py-1 rounded">Festivo</span>)}</div>)}</div></div>); })}</div>
+                        </div>
+                        <div className="lg:hidden flex flex-col gap-2">{monthDays.map((dayObj, i) => { const dateStr = toLocalYMD(dayObj.date); const dayStrEU = `${String(dayObj.date.getDate()).padStart(2,'0')}-${String(dayObj.date.getMonth()+1).padStart(2,'0')}`; const isFestivoCalendario = FESTIVOS.includes(dayStrEU); const record = data.find(r => r.Fecha && r.Fecha.substring(0, 10) === dateStr); const isToday = new Date().toDateString() === dayObj.date.toDateString(); const bg = isFestivoCalendario ? 'bg-red-50 dark:bg-red-900/20' : (isToday ? 'bg-sky-50 dark:bg-sky-900/20 ring-1 ring-brand-blue' : 'bg-slate-50 dark:bg-slate-700/30'); const status = record?.['Estado/Ausencia']; const showData = record && (status === 'Laboral' || status === 'Festivo trabajado' || !status); const dayOfWeek = weekDays[dayObj.date.getDay() === 0 ? 6 : dayObj.date.getDay() - 1]; return (<div key={i} className={`flex items-center justify-between p-3 rounded-lg ${bg}`}><div className="flex items-center gap-3"><span className={`text-xl font-bold ${isFestivoCalendario ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>{dayObj.date.getDate()}</span><span className="text-sm font-medium text-slate-500 dark:text-slate-400">{dayOfWeek.substring(0,3)}.</span></div><div className="flex-1 text-center">{showData ? (<div className="flex flex-col items-center font-mono text-sm"><div><span className="text-xs text-slate-400">E:</span> {extractTime(record?.Entrada)} <span className="text-xs text-slate-400 ml-2">S:</span> {extractTime(record?.Salida)}</div>{record?.Saldo !== null && record?.Saldo !== undefined && (<div className={`font-bold text-base ${record.Saldo >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatHHMM(record.Saldo)}</div>)}</div>) : (<div className="min-h-[2.5rem] flex items-center justify-center">{status ? (<Badge colorClass="bg-slate-200 text-slate-700 text-xs py-1 px-2">{status}</Badge>) : (isFestivoCalendario && <span className="text-xs font-bold text-red-400 uppercase border border-red-200 px-2 py-1 rounded">Festivo</span>)}</div>)}</div></div>); })}</div>
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const [view, setView] = useState('dashboard');
+            const [darkMode, setDarkMode] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const [data, setData] = useState({ acciones: [], contactos: [], horario: [], normas: [] });
+            const [filter, setFilter] = useState({ type: 'Todo', refDate: new Date() });
+            const [actionSearchIntent, setActionSearchIntent] = useState(null);
+            const [listas, setListas] = useState(DEFAULT_LISTAS);
+
+            useEffect(() => { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) setDarkMode(true); fetchData(); }, []);
+            useEffect(() => { document.documentElement.classList.toggle('dark', darkMode); }, [darkMode]);
+            const fetchData = () => { fetch(GOOGLE_SCRIPT_URL).then(res => res.json()).then(json => { setData(json); if(json.normas && json.normas.length > 0) setListas(processListas(json.normas)); setLoading(false); }).catch(err => { console.error(err); setLoading(false); alert("Error cargando datos."); }); };
+            const handleFilterByName = (name) => { setActionSearchIntent(name); setFilter(prev => ({ ...prev, type: 'Todo' })); setView('acciones'); };
+
+            const renderView = () => {
+                if (loading) return <div className="flex h-full items-center justify-center gap-3"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div><span className="text-slate-500">Cargando datos...</span></div>;
+                switch (view) {
+                    case 'dashboard': return <Dashboard data={data} filter={filter} listas={listas} />;
+                    case 'acciones': return <AccionesView data={data.acciones || []} filter={filter} onFilterByName={handleFilterByName} initialSearch={actionSearchIntent} onSearchConsumed={() => setActionSearchIntent(null)} listas={listas} />;
+                    case 'horario': return <HorarioView data={data.horario || []} listas={listas} />;
+                    default: return <Dashboard data={data} filter={filter} listas={listas} />;
+                }
+            };
+
+            return (
+                <div className="flex h-screen flex-col md:flex-row">
+                    <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 gap-2">
+                        <div className="px-2 mb-6"><Logo className="w-full h-auto" /></div>
+                        <NavButton icon={Icons.LayoutDashboard} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
+                        <NavButton icon={Icons.Target} label="Acciones" active={view === 'acciones'} onClick={() => setView('acciones')} />
+                        <NavButton icon={Icons.Calendar} label="Horario" active={view === 'horario'} onClick={() => setView('horario')} />
+                        <div className="mt-auto pt-4 border-t border-slate-200 dark:border-slate-800">
+                            <button onClick={() => setDarkMode(!darkMode)} className="flex items-center gap-2 w-full px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                                {darkMode ? <Icons.Sun size={18} /> : <Icons.Moon size={18} />} {darkMode ? 'Modo Claro' : 'Modo Oscuro'}
+                            </button>
+                        </div>
+                    </aside>
+                    <main className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
+                        {(view === 'dashboard' || view === 'acciones') && <FilterBar filter={filter} onFilterChange={setFilter} />}
+                        {renderView()}
+                    </main>
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-t-lg z-50">
+                        <div className="flex justify-around items-center h-16">
+                            <BottomNavButton icon={Icons.LayoutDashboard} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
+                            <BottomNavButton icon={Icons.Target} label="Acciones" active={view === 'acciones'} onClick={() => setView('acciones')} />
+                            <BottomNavButton icon={Icons.Calendar} label="Horario" active={view === 'horario'} onClick={() => setView('horario')} />
+                            <BottomNavButton icon={darkMode ? Icons.Sun : Icons.Moon} label={darkMode ? 'Claro' : 'Oscuro'} onClick={() => setDarkMode(!darkMode)} />
+                        </div>
+                    </nav>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
